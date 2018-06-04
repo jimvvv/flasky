@@ -7,6 +7,9 @@ from flask_wtf import FlaskForm
 from flask_sqlalchemy import SQLAlchemy
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
+
+basedir = os.path.abspath(os.path.dirname(__file__))
+
 # pylint: disable=invalid-name
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'AAAAB3NzaC1yc2EAAAABJQAAAIB5oj4IyhQpcJmKTiZOP\
@@ -26,12 +29,19 @@ def index():
     # NameForm will include flask.request
     form = NameForm()
     if form.validate_on_submit():
-        old_name = session.get('name')
-        if old_name is not None and old_name != form.name.data:
-            flash('Looks like you have changed your name!')
-        session['name'] = form.name.data
+        user = User.query.filter_by(username=form.name.data).first()
+        if user is None:
+            user = User(username=form.name.data)
+            db.session.add(user)
+            db.session.commit()
+            session['known'] = False
+        else:
+            session['known'] = True
+            session['name'] = form.name.data
+            form.name.data = ''
         return redirect(url_for('index'))
-    return render_template('index.html', form=form, name=session.get('name'))
+    return render_template('index.html', form=form, name=session.get('name'), \
+        known=session.get('known', False))
 
 @app.route('/user/<name>')
 def user(name):
@@ -53,7 +63,7 @@ class Role(db.Model):
     __tablename__ = 'roles'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(64), unique=True)
-    users = db.relationship(;'User', backref='role')
+    users = db.relationship('User', backref='role')
 
     def __repr__(self):
         return '<Role %r>' % self.name
