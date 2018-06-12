@@ -4,14 +4,42 @@ from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from flask import current_app
 from . import DB, login_manager
 
+class Permission:
+    FOLLOW = 1
+    COMMENT = 2
+    WRITE = 4
+    MODERATE = 8
+    ADMIN = 16
+
 class Role(DB.Model):
     __tablename__ = 'roles'
     id = DB.Column(DB.Integer, primary_key=True)
     name = DB.Column(DB.String(64), unique=True)
-    users = DB.relationship('User', backref='role')
+    default = DB.Column(DB.Boolean, default=False, index=True)
+    permissions = DB.Column(DB.Integer)
+    users = DB.relationship('User', backref='role', lazy='dynamic')
+
+    def __init__(self, **kwargs):
+        super(Role, self).__init__(**kwargs)
+        if self.permissions is None:
+            self.permissions = 0
 
     def __repr__(self):
         return '<Role %r>' % self.name
+
+    def add_permission(self, perm):
+        if not self.has_permission(perm):
+            self.permissions += perm
+
+    def remove_permission(self, perm):
+        if self.has_permission(perm):
+            self.permissions -= perm
+
+    def reset_permission(self, perm):
+        self.permissions = 0
+
+    def has_permission(self, perm):
+        return self.permissions & perm == perm
 
 class User(DB.Model, UserMixin):
     __tablename__ = 'users'
@@ -46,7 +74,46 @@ class User(DB.Model, UserMixin):
         if data.get('confirm') != self.id:
             return False
         self.confirmed = True
-        db.session.add(self)
+        DB.session.add(self)
+        return True
+
+    def generate_reset_token(self, expiration=3600):
+        s = Serializer(current_app.config.get('SECRET_KEY'), expiration)
+        return s.dumps({'reset': self.id}).decode('utf-8')
+
+    def generate_email_change_token(self, new_email, expiration=3600):
+        s = Serializer(current_app.config.get('SECRET_KEY'), expiration)
+        return s.dumps({'change_email': self.id, 'new_email': new_email}).decode('utf-8')
+
+    def change_email(self, token):
+        s = Serializer(current_app.config.get('SECRET_KEY'))
+        try:
+            data = s.loads(token.encode('utf-8'))
+        except:
+            return False
+        if data.get('change_email') != self.id:
+            return False
+        new_email = data.get('new_email')
+        if new_email is None:
+            return False
+        if self.query.filter_by(email=new_email).first() is not None:
+            return False
+        self.email = new_email
+        DB.session.add(self)
+        return True
+
+    @staticmethod
+    def reset_password(token, new_password):
+        s = Serializer(current_app.config.get('SECRET_KEY'))
+        try:
+            data = s.loads(token.encode('utf-8'))
+        except:
+            return False
+        user = User.query.get(data.get('reset'))
+        if user is None:
+            return False
+        user.password = new_password
+        DB.session.add(user)
         return True
 
     def __repr__(self):
