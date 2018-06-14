@@ -35,11 +35,30 @@ class Role(DB.Model):
         if self.has_permission(perm):
             self.permissions -= perm
 
-    def reset_permission(self, perm):
+    def reset_permissions(self):
         self.permissions = 0
 
     def has_permission(self, perm):
         return self.permissions & perm == perm
+
+    @staticmethod
+    def insert_roles():
+        roles = {
+            'User': [Permission.FOLLOW, Permission.COMMENT, Permission.WRITE],
+            'Moderator': [Permission.FOLLOW, Permission.COMMENT, Permission.WRITE, Permission.MODERATE],
+            'Administrator': [Permission.FOLLOW, Permission.COMMENT, Permission.WRITE, Permission.MODERATE, Permission.ADMIN],
+        }
+        default_role = 'User'
+        for r in roles:
+            role = Role.query.filter_by(name=r).first()
+            if role is None:
+                role = Role(name=r)
+            role.reset_permissions()
+            for perm in roles[r]:
+                role.add_permission(perm)
+            role.default = (role.name == default_role)
+            DB.session.add(role)
+        DB.session.commit()
 
 class User(DB.Model, UserMixin):
     __tablename__ = 'users'
@@ -49,6 +68,17 @@ class User(DB.Model, UserMixin):
     email = DB.Column(DB.String(64), unique=True, index=True)
     confirmed = DB.Column(DB.Boolean, default=False)
     role_id = DB.Column(DB.Integer, DB.ForeignKey('roles.id'))
+
+    def __init__(self, **kwargs):
+        super(User, self).__init__(**kwargs)
+        if self.role is None:
+            if current_app.config.get('FLASKY_ADMIN') and self.email == current_app.config.get('FLASKY_ADMIN'):
+                self.role = Role.query.filter_by(name='Administrator').first()
+            if self.role is None:
+                self.role = Role.query.filter_by(default=True).first()
+
+    def __repr__(self):
+        return '<User %r>' % self.username
 
     @property
     def password(self):
@@ -115,9 +145,6 @@ class User(DB.Model, UserMixin):
         user.password = new_password
         DB.session.add(user)
         return True
-
-    def __repr__(self):
-        return '<User %r>' % self.username
 
 @login_manager.user_loader
 def load_user(user_id):
