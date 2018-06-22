@@ -1,5 +1,5 @@
 from werkzeug.security import generate_password_hash, check_password_hash
-from flask_login import UserMixin
+from flask_login import UserMixin, AnonymousUserMixin
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
 from flask import current_app
 from . import DB, login_manager
@@ -132,6 +132,12 @@ class User(DB.Model, UserMixin):
         DB.session.add(self)
         return True
 
+    def can(self, perm):
+        return self.role is not None and self.role.has_permission(perm)
+
+    def is_administrator(self):
+        return self.can(Permission.ADMIN)
+
     @staticmethod
     def reset_password(token, new_password):
         s = Serializer(current_app.config.get('SECRET_KEY'))
@@ -145,6 +151,15 @@ class User(DB.Model, UserMixin):
         user.password = new_password
         DB.session.add(user)
         return True
+
+class AnonymousUser(AnonymousUserMixin):
+    def can(self, permissions):
+        return False
+
+    def is_administrator(self):
+        return False
+
+login_manager.anonymous_user = AnonymousUser
 
 @login_manager.user_loader
 def load_user(user_id):

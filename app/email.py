@@ -1,9 +1,11 @@
 from flask_mail import Mail, Message
-from config import CONFIG
+from flask import current_app, render_template
 
 def send_email(to, subject, template, **kwargs):
-    msg = Message(CONFIG['FLASKY_MAIL_SUBJECT_PREFIX'] + subject, 
-        sender = CONFIG['FLASKY_MAIL_SENDER'],
+    mail = Mail()
+    app = current_app._get_current_object()
+    msg = Message(app.config['FLASKY_MAIL_SUBJECT_PREFIX'] + subject, 
+        sender = app.config['FLASKY_MAIL_SENDER'],
         recipients = [to])
     msg.body = render_template(template + '.txt', **kwargs)
     msg.html = render_template(template + '.html', **kwargs)
